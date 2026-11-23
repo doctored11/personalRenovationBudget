@@ -49,6 +49,11 @@ export function formatTime(iso: string): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+export function formatShortDate(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getDate()} ${MONTHS_GEN[d.getMonth()]}`
+}
+
 export function toInputDateTime(iso: string): string {
   const d = new Date(iso)
   const pad = (n: number) => String(n).padStart(2, '0')

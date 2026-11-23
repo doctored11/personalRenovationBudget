@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react'
-import { Globe, HelpCircle, ImagePlus, Store, X } from 'lucide-react'
+import { Check, Globe, HelpCircle, ImagePlus, Plus, Store, X } from 'lucide-react'
 import type { Category, Purchase, Source } from '@/types'
 import { SOURCE_LABELS } from '@/types'
 import { fileToCompressedDataUrl } from '@/lib/photo'
 import { toInputDateTime } from '@/lib/format'
+import { CATEGORY_PALETTE } from '@/lib/palette'
 import Modal from '@/components/Modal'
 
 export interface PurchaseDraft {
@@ -22,6 +23,7 @@ interface PurchaseFormProps {
   categories: Category[]
   onClose: () => void
   onSubmit: (draft: PurchaseDraft) => void
+  onCreateCategory: (category: Category) => void
 }
 
 const SOURCE_ICONS: Record<Source, typeof Store> = {
@@ -40,6 +42,7 @@ export default function PurchaseForm({
   categories,
   onClose,
   onSubmit,
+  onCreateCategory,
 }: PurchaseFormProps) {
   const [name, setName] = useState(initial?.name ?? '')
   const [amountStr, setAmountStr] = useState(initial ? String(initial.amount) : '')
@@ -51,7 +54,24 @@ export default function PurchaseForm({
   const [note, setNote] = useState(initial?.note ?? '')
   const [photo, setPhoto] = useState<string | undefined>(initial?.photo)
   const [errors, setErrors] = useState<{ name?: string; amount?: string }>({})
+  const [catFormOpen, setCatFormOpen] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [newCatColor, setNewCatColor] = useState(CATEGORY_PALETTE[3])
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const createCategory = () => {
+    const trimmed = newCatName.trim()
+    if (!trimmed) return
+    const cat: Category = {
+      id: `cat-${Date.now().toString(36)}`,
+      name: trimmed,
+      color: newCatColor,
+    }
+    onCreateCategory(cat)
+    setCategoryId(cat.id)
+    setCatFormOpen(false)
+    setNewCatName('')
+  }
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return
@@ -202,7 +222,57 @@ export default function PurchaseForm({
                 {c.name}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setCatFormOpen((v) => !v)}
+              aria-label="Создать категорию"
+              className="flex min-h-11 items-center gap-1.5 rounded-full border border-dashed border-input px-4 text-sm text-muted-foreground transition-all hover:border-ring hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95"
+            >
+              <Plus className="h-4 w-4" />
+              Своя
+            </button>
           </div>
+          {catFormOpen && (
+            <div className="mt-1 flex flex-col gap-3 rounded-xl border border-border bg-background p-4">
+              <input
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+                placeholder="Название новой категории"
+                aria-label="Название новой категории"
+                className={inputCls}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    createCategory()
+                  }
+                }}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                {CATEGORY_PALETTE.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => setNewCatColor(color)}
+                    aria-label={`Цвет ${color}`}
+                    className="flex h-10 w-10 items-center justify-center rounded-full transition-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95"
+                    style={{ backgroundColor: color }}
+                  >
+                    {newCatColor === color && (
+                      <Check className="h-4 w-4 text-black/70" strokeWidth={3} />
+                    )}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={createCategory}
+                disabled={!newCatName.trim()}
+                className="min-h-11 rounded-xl bg-primary font-semibold text-primary-foreground transition-all hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Создать и выбрать
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -258,7 +328,7 @@ export default function PurchaseForm({
 
         <button
           type="submit"
-          className="mt-1 min-h-12 w-full rounded-xl bg-primary font-semibold text-deep-foreground transition-transform hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.98]"
+          className="mt-1 min-h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground transition-transform hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.98]"
         >
           {initial ? 'Сохранить' : 'Добавить покупку'}
         </button>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Check, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Category } from '@/types'
 import Modal from '@/components/Modal'
+import { CATEGORY_PALETTE as PALETTE } from '@/lib/palette'
 
 interface CategoryManagerProps {
   open: boolean
@@ -9,11 +10,6 @@ interface CategoryManagerProps {
   onClose: () => void
   onSave: (categories: Category[]) => void
 }
-
-const PALETTE = [
-  '#f59e0b', '#fb923c', '#ef4444', '#ec4899', '#a78bfa',
-  '#6366f1', '#38bdf8', '#34d399', '#a3e635', '#94a3b8',
-]
 
 interface EditState {
   id: string | null

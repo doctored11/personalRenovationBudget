@@ -62,6 +62,136 @@ function useBuckets(items: StatItem[], period: Period): Bucket[] {
   }, [items, period])
 }
 
+function usePeopleBuckets(items: StatItem[], period: Period, categories: Category[]) {
+  return useMemo(() => {
+    const perDay = new Map<string, Map<string, number>>()
+    let minKey: string | null = null
+    for (const it of items) {
+      if (!it.categoryId) continue
+      const k = dayKey(new Date(it.date))
+      if (!minKey || k < minKey) minKey = k
+      let m = perDay.get(it.categoryId)
+      if (!m) {
+        m = new Map()
+        perDay.set(it.categoryId, m)
+      }
+      m.set(k, (m.get(k) ?? 0) + it.value)
+    }
+    const today = dayKey(new Date())
+    const start =
+      period === 'all' && minKey
+        ? minKey
+        : dayKey(new Date(Date.now() - (period === '7d' ? 6 : 29) * 86400000))
+    const days: { key: string; label: string }[] = []
+    const cursor = parseDayKey(start)
+    const end = parseDayKey(today)
+    while (cursor <= end) {
+      days.push({ key: dayKey(cursor), label: String(cursor.getDate()) })
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    let labels: string[]
+    let dayGroups: string[][]
+    if (days.length > 62) {
+      labels = []
+      dayGroups = []
+      for (let i = 0; i < days.length; i += 7) {
+        const chunk = days.slice(i, i + 7)
+        labels.push(chunk[0].label)
+        dayGroups.push(chunk.map((d) => d.key))
+      }
+    } else {
+      labels = days.map((d) => d.label)
+      dayGroups = days.map((d) => [d.key])
+    }
+    const series = categories
+      .map((c) => {
+        const m = perDay.get(c.id)
+        const values = dayGroups.map((keys) => keys.reduce((s, k) => s + (m?.get(k) ?? 0), 0))
+        return { id: c.id, name: c.name, color: c.color, values }
+      })
+      .filter((s) => s.values.some((v) => v > 0))
+    return { labels, series }
+  }, [items, period, categories])
+}
+
+function PeopleLineChart({
+  labels,
+  series,
+}: {
+  labels: string[]
+  series: { id: string; name: string; color: string; values: number[] }[]
+}) {
+  const W = 340
+  const H = 150
+  const PAD = { top: 14, bottom: 22, left: 6, right: 6 }
+  const innerW = W - PAD.left - PAD.right
+  const innerH = H - PAD.top - PAD.bottom
+  const max = Math.max(1, ...series.flatMap((s) => s.values))
+  const n = Math.max(1, labels.length)
+  const xAt = (i: number) => PAD.left + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW)
+  const yAt = (v: number) => PAD.top + innerH - (v / max) * innerH
+  const labelEvery = Math.ceil(n / 8)
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="График по людям">
+      {[0.33, 0.66, 1].map((f) => (
+        <line
+          key={f}
+          x1={PAD.left}
+          x2={W - PAD.right}
+          y1={PAD.top + innerH * (1 - f)}
+          y2={PAD.top + innerH * (1 - f)}
+          style={{ stroke: 'hsl(var(--chart-grid))' }}
+          strokeDasharray="3 4"
+          strokeWidth="1"
+        />
+      ))}
+      {series.map((s) => {
+        const pts = s.values.map((v, i) => ({ x: xAt(i), y: yAt(v) }))
+        return (
+          <path
+            key={s.id}
+            d={smoothPath(pts)}
+            fill="none"
+            stroke={s.color}
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+        )
+      })}
+      {series.map((s) =>
+        s.values.map((v, i) =>
+          v > 0 && v === Math.max(...s.values) ? (
+            <circle
+              key={`${s.id}-${i}`}
+              cx={xAt(i)}
+              cy={yAt(v)}
+              r="3.5"
+              fill={s.color}
+              style={{ stroke: 'hsl(var(--background))' }}
+              strokeWidth="1.5"
+            />
+          ) : null,
+        ),
+      )}
+      {labels.map((label, i) =>
+        i % labelEvery === 0 ? (
+          <text
+            key={i}
+            x={xAt(i)}
+            y={H - 6}
+            textAnchor="middle"
+            fontSize="10"
+            style={{ fill: 'hsl(var(--muted-foreground))' }}
+          >
+            {label}
+          </text>
+        ) : null,
+      )}
+    </svg>
+  )
+}
+
 function smoothPath(points: { x: number; y: number }[]): string {
   if (points.length < 2) return ''
   let d = `M ${points[0].x} ${points[0].y}`
@@ -356,6 +486,7 @@ export default function StatsPanel({
 }: StatsPanelProps) {
   const [view, setView] = useState<ViewMode>('days')
   const [period, setPeriod] = useState<Period>('30d')
+  const [lineSel, setLineSel] = useState<string[] | null>(null)
 
   const VIEWS: { id: ViewMode; label: string }[] = [
     { id: 'days', label: 'По дням' },
@@ -386,6 +517,22 @@ export default function StatsPanel({
     () => (people ? buildSlices(filteredPeople, people.categories, people.emptyLabel) : []),
     [filteredPeople, people],
   )
+
+  const peopleBuckets = usePeopleBuckets(people?.items ?? [], period, people?.categories ?? [])
+
+  const toggleLine = (id: string) => {
+    setLineSel((prev) => {
+      const all = peopleBuckets.series.map((s) => s.id)
+      const cur = prev ?? all
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+      return next.length === all.length ? null : next
+    })
+  }
+
+  const visibleSeries =
+    lineSel === null
+      ? peopleBuckets.series
+      : peopleBuckets.series.filter((s) => lineSel.includes(s.id))
 
   const periodTotal = filtered.reduce((s, it) => s + it.value, 0)
   const avgPerDay =
@@ -469,13 +616,48 @@ export default function StatsPanel({
             За выбранный период записей не было
           </p>
         ) : (
-          <DonutChart
-            slices={peopleSlices}
-            total={filteredPeople.reduce((s, it) => s + it.value, 0)}
-            selectedId={people.selectedId}
-            onSelect={people.onSelect}
-            formatValue={formatValue}
-          />
+          <div className="flex flex-col gap-4">
+            {visibleSeries.length > 0 ? (
+              <PeopleLineChart labels={peopleBuckets.labels} series={visibleSeries} />
+            ) : (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                Выберите людей ниже, чтобы отрисовать график
+              </p>
+            )}
+            <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
+              {peopleBuckets.series.map((s) => {
+                const active = lineSel === null || lineSel.includes(s.id)
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => toggleLine(s.id)}
+                    aria-pressed={active}
+                    className={`flex min-h-9 shrink-0 items-center gap-2 rounded-full border px-3.5 text-xs transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95 ${
+                      active
+                        ? 'border-foreground bg-secondary font-medium'
+                        : 'border-input text-muted-foreground opacity-60 hover:border-ring'
+                    }`}
+                  >
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: s.color }}
+                    />
+                    {s.name}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="border-t border-border pt-4">
+              <DonutChart
+                slices={peopleSlices}
+                total={filteredPeople.reduce((s, it) => s + it.value, 0)}
+                selectedId={people.selectedId}
+                onSelect={people.onSelect}
+                formatValue={formatValue}
+              />
+            </div>
+          </div>
         )
       ) : slices.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">

@@ -16,6 +16,7 @@ const VIEWS: { id: ViewMode; label: string }[] = [
 ]
 
 interface Bucket {
+  key?: string
   label: string
   total: number
 }
@@ -55,7 +56,7 @@ function useBuckets(purchases: Purchase[], period: Period): Bucket[] {
       }
       return weeks
     }
-    return daily.map((d) => ({ label: String(parseDayKey(d.key).getDate()), total: d.total }))
+    return daily.map((d) => ({ key: d.key, label: String(parseDayKey(d.key).getDate()), total: d.total }))
   }, [purchases, period])
 }
 
@@ -76,7 +77,15 @@ function smoothPath(points: { x: number; y: number }[]): string {
   return d
 }
 
-function DaysChart({ buckets }: { buckets: Bucket[] }) {
+function DaysChart({
+  buckets,
+  selectedDay,
+  onSelectDay,
+}: {
+  buckets: Bucket[]
+  selectedDay?: string
+  onSelectDay?: (key: string) => void
+}) {
   const W = 340
   const H = 140
   const PAD = { top: 14, bottom: 22, left: 6, right: 6 }
@@ -136,6 +145,39 @@ function DaysChart({ buckets }: { buckets: Bucket[] }) {
           />
         ) : null,
       )}
+      {points.map((p, i) =>
+        buckets[i].key && buckets[i].key === selectedDay && buckets[i].total !== max ? (
+          <circle
+            key={`sel-${i}`}
+            cx={p.x}
+            cy={p.y}
+            r="4"
+            style={{ fill: 'hsl(var(--primary))', stroke: 'hsl(var(--background))' }}
+            strokeWidth="2"
+          />
+        ) : null,
+      )}
+      {onSelectDay &&
+        buckets.map((b, i) => {
+          if (!b.key) return null
+          const step = buckets.length > 1 ? innerW / (buckets.length - 1) : innerW
+          const x = Math.max(PAD.left, points[i].x - step / 2)
+          const w = Math.min(step, PAD.left + innerW - x)
+          return (
+            <rect
+              key={`hit-${b.key}`}
+              x={x}
+              y={0}
+              width={w}
+              height={H}
+              fill="transparent"
+              className="cursor-pointer"
+              onClick={() => onSelectDay(b.key!)}
+            >
+              <title>{`${b.label}: ${formatMoney(b.total)}`}</title>
+            </rect>
+          )
+        })}
       {buckets.map((b, i) =>
         i % labelEvery === 0 ? (
           <text
@@ -155,18 +197,30 @@ function DaysChart({ buckets }: { buckets: Bucket[] }) {
 }
 
 interface CatSlice {
+  id: string
   name: string
   color: string
   total: number
   share: number
 }
 
-function DonutChart({ slices, total }: { slices: CatSlice[]; total: number }) {
-  const [active, setActive] = useState(0)
+function DonutChart({
+  slices,
+  total,
+  selectedId,
+  onSelect,
+}: {
+  slices: CatSlice[]
+  total: number
+  selectedId: string | null
+  onSelect: (id: string | null) => void
+}) {
   const R = 62
   const CIRC = 2 * Math.PI * R
   let offset = 0
-  const current = slices[active]
+  const selIdx = slices.findIndex((s) => s.id === selectedId)
+  const displayIdx = selIdx >= 0 ? selIdx : 0
+  const current = slices[displayIdx]
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -178,20 +232,22 @@ function DonutChart({ slices, total }: { slices: CatSlice[]; total: number }) {
             const dash = `${Math.max(0, frac * CIRC - 2)} ${CIRC}`
             const el = (
               <circle
-                key={s.name}
+                key={s.id}
                 cx="80"
                 cy="80"
                 r={R}
                 fill="none"
                 stroke={s.color}
-                strokeWidth={i === active ? 22 : 18}
+                strokeWidth={i === displayIdx ? 22 : 18}
                 strokeDasharray={dash}
                 strokeDashoffset={-offset * CIRC}
                 strokeLinecap="butt"
                 className="cursor-pointer transition-all duration-200"
-                onClick={() => setActive(i)}
-                opacity={i === active ? 1 : 0.75}
-              />
+                onClick={() => onSelect(s.id === selectedId ? null : s.id)}
+                opacity={i === displayIdx ? 1 : 0.75}
+              >
+                <title>{`${s.name}: ${formatMoney(s.total)}`}</title>
+              </circle>
             )
             offset += frac
             return el
@@ -210,13 +266,13 @@ function DonutChart({ slices, total }: { slices: CatSlice[]; total: number }) {
         </div>
       </div>
       <div className="flex w-full flex-col gap-2">
-        {slices.map((s, i) => (
+        {slices.map((s) => (
           <button
-            key={s.name}
+            key={s.id}
             type="button"
-            onClick={() => setActive(i)}
+            onClick={() => onSelect(s.id === selectedId ? null : s.id)}
             className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.99] ${
-              i === active ? 'bg-accent' : 'hover:bg-accent/50'
+              s.id === selectedId ? 'bg-accent' : 'hover:bg-accent/50'
             }`}
           >
             <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: s.color }} />
@@ -237,9 +293,20 @@ function DonutChart({ slices, total }: { slices: CatSlice[]; total: number }) {
 interface StatsPanelProps {
   purchases: Purchase[]
   categories: Category[]
+  selectedDay: string
+  onSelectDay: (day: string) => void
+  selectedCategory: string | null
+  onSelectCategory: (id: string | null) => void
 }
 
-export default function StatsPanel({ purchases, categories }: StatsPanelProps) {
+export default function StatsPanel({
+  purchases,
+  categories,
+  selectedDay,
+  onSelectDay,
+  selectedCategory,
+  onSelectCategory,
+}: StatsPanelProps) {
   const [view, setView] = useState<ViewMode>('days')
   const [period, setPeriod] = useState<Period>('30d')
 
@@ -267,13 +334,14 @@ export default function StatsPanel({ purchases, categories }: StatsPanelProps) {
     const list = categories
       .filter((c) => (totals.get(c.id) ?? 0) > 0)
       .map((c) => ({
+        id: c.id,
         name: c.name,
         color: c.color,
         total: totals.get(c.id) ?? 0,
         share: (totals.get(c.id) ?? 0) / sum,
       }))
     if (uncategorized > 0) {
-      list.push({ name: 'Без категории', color: '#78716c', total: uncategorized, share: uncategorized / sum })
+      list.push({ id: 'none', name: 'Без категории', color: '#78716c', total: uncategorized, share: uncategorized / sum })
     }
     return list.sort((a, b) => b.total - a.total)
   }, [filtered, categories])
@@ -327,7 +395,7 @@ export default function StatsPanel({ purchases, categories }: StatsPanelProps) {
         </p>
       ) : view === 'days' ? (
         <div className="flex flex-col gap-4">
-          <DaysChart buckets={buckets} />
+          <DaysChart buckets={buckets} selectedDay={selectedDay} onSelectDay={onSelectDay} />
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded-xl bg-background p-3">
               <p className="text-[11px] text-muted-foreground">За период</p>
@@ -350,7 +418,12 @@ export default function StatsPanel({ purchases, categories }: StatsPanelProps) {
           За выбранный период трат не было
         </p>
       ) : (
-        <DonutChart slices={slices} total={periodTotal} />
+        <DonutChart
+          slices={slices}
+          total={periodTotal}
+          selectedId={selectedCategory}
+          onSelect={onSelectCategory}
+        />
       )}
     </section>
   )

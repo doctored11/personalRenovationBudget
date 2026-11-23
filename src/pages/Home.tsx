@@ -12,6 +12,7 @@ import {
   Store,
   Sun,
   Tags,
+  X,
 } from 'lucide-react'
 import type { Category, Purchase } from '@/types'
 import {
@@ -38,6 +39,14 @@ import CategoryManager from '@/components/CategoryManager'
 import SettingsMenu from '@/components/SettingsMenu'
 
 const SOURCE_ICONS = { offline: Store, online: Globe, unknown: HelpCircle }
+
+function plural(n: number, forms: [string, string, string]) {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return forms[0]
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return forms[1]
+  return forms[2]
+}
 
 function PurchaseCard({
   p,
@@ -106,8 +115,7 @@ export default function Home() {
   const [purchases, setPurchases] = useState<Purchase[]>(loadPurchases)
   const [categories, setCategories] = useState<Category[]>(loadCategories)
   const [selectedDay, setSelectedDay] = useState(() => dayKey(new Date()))
-  const [listMode, setListMode] = useState<'days' | 'categories'>('days')
-  const [filterCat, setFilterCat] = useState<string>('all')
+  const [filterCat, setFilterCat] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'date' | 'price'>('date')
 
   const [formOpen, setFormOpen] = useState(false)
@@ -152,8 +160,8 @@ export default function Home() {
   const totalDay = dayPurchases.reduce((s, p) => s + p.amount, 0)
 
   const catListPurchases = useMemo(() => {
+    if (filterCat === null) return []
     const list = purchases.filter((p) => {
-      if (filterCat === 'all') return true
       if (filterCat === 'none')
         return !p.categoryId || !categories.some((c) => c.id === p.categoryId)
       return p.categoryId === filterCat
@@ -162,6 +170,15 @@ export default function Home() {
       sortBy === 'date' ? b.date.localeCompare(a.date) : b.amount - a.amount,
     )
   }, [purchases, filterCat, sortBy, categories])
+
+  const activeFilter = useMemo(() => {
+    if (filterCat === null) return null
+    if (filterCat === 'none') return { name: 'Без категории', color: '#78716c' }
+    const cat = categories.find((c) => c.id === filterCat)
+    return { name: cat?.name ?? 'Категория', color: cat?.color ?? '#78716c' }
+  }, [filterCat, categories])
+
+  const filterTotal = catListPurchases.reduce((s, p) => s + p.amount, 0)
 
   const createCategory = (cat: Category) => {
     setCategories((prev) => [...prev, cat])
@@ -173,6 +190,11 @@ export default function Home() {
     const d = parseDayKey(selectedDay)
     d.setDate(d.getDate() + delta)
     setSelectedDay(dayKey(d))
+  }
+
+  const selectDayFromChart = (day: string) => {
+    setSelectedDay(day)
+    setFilterCat(null)
   }
 
   const openDatePicker = () => {
@@ -283,13 +305,20 @@ export default function Home() {
             <DayBars
               purchases={purchases}
               selectedDay={selectedDay}
-              onSelectDay={setSelectedDay}
+              onSelectDay={selectDayFromChart}
             />
           </div>
         </section>
 
         {purchases.length > 0 && (
-          <StatsPanel purchases={purchases} categories={categories} />
+          <StatsPanel
+            purchases={purchases}
+            categories={categories}
+            selectedDay={selectedDay}
+            onSelectDay={selectDayFromChart}
+            selectedCategory={filterCat}
+            onSelectCategory={setFilterCat}
+          />
         )}
 
         <section className="flex flex-col gap-3">
@@ -300,32 +329,8 @@ export default function Home() {
                 Нажмите «+», чтобы добавить первую покупку
               </p>
             </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted/70 p-1">
-                {(
-                  [
-                    { id: 'days', label: 'По дням' },
-                    { id: 'categories', label: 'По категориям' },
-                  ] as const
-                ).map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setListMode(m.id)}
-                    className={`min-h-10 rounded-lg text-sm font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.98] ${
-                      listMode === m.id
-                        ? 'bg-card text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-
-              {listMode === 'days' ? (
-                <>
+          ) : filterCat === null ? (
+              <>
                   <div className="flex items-center justify-between gap-2">
                     <button
                       type="button"
@@ -387,48 +392,30 @@ export default function Home() {
                 </>
               ) : (
                 <>
-                  <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-                    <button
-                      type="button"
-                      onClick={() => setFilterCat('all')}
-                      className={`flex min-h-10 shrink-0 items-center rounded-full border px-4 text-sm transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95 ${
-                        filterCat === 'all'
-                          ? 'border-foreground bg-secondary font-medium'
-                          : 'border-input text-muted-foreground hover:border-ring'
-                      }`}
-                    >
-                      Все
-                    </button>
-                    {categories.map((c) => (
+                  {activeFilter && (
+                    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3">
+                      <span
+                        className="h-3.5 w-3.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: activeFilter.color }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{activeFilter.name}</p>
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          {catListPurchases.length}{' '}
+                          {plural(catListPurchases.length, ['покупка', 'покупки', 'покупок'])} ·{' '}
+                          {formatMoney(filterTotal)}
+                        </p>
+                      </div>
                       <button
-                        key={c.id}
                         type="button"
-                        onClick={() => setFilterCat(c.id)}
-                        className={`flex min-h-10 shrink-0 items-center gap-2 rounded-full border px-4 text-sm transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95 ${
-                          filterCat === c.id
-                            ? 'border-foreground bg-secondary font-medium'
-                            : 'border-input text-muted-foreground hover:border-ring'
-                        }`}
+                        onClick={() => setFilterCat(null)}
+                        aria-label="Сбросить фильтр"
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95"
                       >
-                        <span
-                          className="h-3 w-3 shrink-0 rounded-full"
-                          style={{ backgroundColor: c.color }}
-                        />
-                        {c.name}
+                        <X className="h-5 w-5" />
                       </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setFilterCat('none')}
-                      className={`flex min-h-10 shrink-0 items-center rounded-full border px-4 text-sm transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95 ${
-                        filterCat === 'none'
-                          ? 'border-foreground bg-secondary font-medium'
-                          : 'border-input text-muted-foreground hover:border-ring'
-                      }`}
-                    >
-                      Без категории
-                    </button>
-                  </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted/70 p-1">
                     {(
                       [
@@ -469,8 +456,6 @@ export default function Home() {
                   )}
                 </>
               )}
-            </>
-          )}
         </section>
       </main>
 

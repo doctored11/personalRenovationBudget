@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react'
-import type { Category, Purchase } from '@/types'
-import { dayKey, formatMoney, parseDayKey } from '@/lib/format'
+import type { Category } from '@/types'
+import { dayKey, parseDayKey } from '@/lib/format'
+
+export interface StatItem {
+  date: string
+  value: number
+  categoryId: string | null
+}
 
 type ViewMode = 'days' | 'categories'
 type Period = '7d' | '30d' | 'all'
@@ -21,13 +27,13 @@ interface Bucket {
   total: number
 }
 
-function useBuckets(purchases: Purchase[], period: Period): Bucket[] {
+function useBuckets(items: StatItem[], period: Period): Bucket[] {
   return useMemo(() => {
     const totals = new Map<string, number>()
     let minKey: string | null = null
-    for (const p of purchases) {
-      const k = dayKey(new Date(p.date))
-      totals.set(k, (totals.get(k) ?? 0) + p.amount)
+    for (const it of items) {
+      const k = dayKey(new Date(it.date))
+      totals.set(k, (totals.get(k) ?? 0) + it.value)
       if (!minKey || k < minKey) minKey = k
     }
     const today = dayKey(new Date())
@@ -57,7 +63,7 @@ function useBuckets(purchases: Purchase[], period: Period): Bucket[] {
       return weeks
     }
     return daily.map((d) => ({ key: d.key, label: String(parseDayKey(d.key).getDate()), total: d.total }))
-  }, [purchases, period])
+  }, [items, period])
 }
 
 function smoothPath(points: { x: number; y: number }[]): string {
@@ -81,10 +87,12 @@ function DaysChart({
   buckets,
   selectedDay,
   onSelectDay,
+  formatValue,
 }: {
   buckets: Bucket[]
   selectedDay?: string
   onSelectDay?: (key: string) => void
+  formatValue: (n: number) => string
 }) {
   const W = 340
   const H = 140
@@ -106,7 +114,7 @@ function DaysChart({
   const labelEvery = Math.ceil(buckets.length / 8)
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="График трат по дням">
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="График по дням">
       <defs>
         <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" style={{ stopColor: 'hsl(var(--primary))', stopOpacity: 0.35 }} />
@@ -157,6 +165,20 @@ function DaysChart({
           />
         ) : null,
       )}
+      {buckets.map((b, i) =>
+        i % labelEvery === 0 ? (
+          <text
+            key={i}
+            x={points[i].x}
+            y={H - 6}
+            textAnchor="middle"
+            fontSize="10"
+            style={{ fill: 'hsl(var(--muted-foreground))' }}
+          >
+            {b.label}
+          </text>
+        ) : null,
+      )}
       {onSelectDay &&
         buckets.map((b, i) => {
           if (!b.key) return null
@@ -174,24 +196,10 @@ function DaysChart({
               className="cursor-pointer"
               onClick={() => onSelectDay(b.key!)}
             >
-              <title>{`${b.label}: ${formatMoney(b.total)}`}</title>
+              <title>{`${b.label}: ${formatValue(b.total)}`}</title>
             </rect>
           )
         })}
-      {buckets.map((b, i) =>
-        i % labelEvery === 0 ? (
-          <text
-            key={i}
-            x={points[i].x}
-            y={H - 6}
-            textAnchor="middle"
-            fontSize="10"
-            style={{ fill: 'hsl(var(--muted-foreground))' }}
-          >
-            {b.label}
-          </text>
-        ) : null,
-      )}
     </svg>
   )
 }
@@ -209,11 +217,13 @@ function DonutChart({
   total,
   selectedId,
   onSelect,
+  formatValue,
 }: {
   slices: CatSlice[]
   total: number
   selectedId: string | null
   onSelect: (id: string | null) => void
+  formatValue: (n: number) => string
 }) {
   const R = 62
   const CIRC = 2 * Math.PI * R
@@ -246,7 +256,7 @@ function DonutChart({
                 onClick={() => onSelect(s.id === selectedId ? null : s.id)}
                 opacity={i === displayIdx ? 1 : 0.75}
               >
-                <title>{`${s.name}: ${formatMoney(s.total)}`}</title>
+                <title>{`${s.name}: ${formatValue(s.total)}`}</title>
               </circle>
             )
             offset += frac
@@ -258,7 +268,7 @@ function DonutChart({
             {current?.name ?? '—'}
           </span>
           <span className="text-xl font-bold tabular-nums">
-            {formatMoney(current?.total ?? total)}
+            {formatValue(current?.total ?? total)}
           </span>
           <span className="text-xs text-muted-foreground">
             {current ? `${Math.round(current.share * 100)}%` : ''}
@@ -281,7 +291,7 @@ function DonutChart({
               {Math.round(s.share * 100)}%
             </span>
             <span className="shrink-0 text-sm font-medium tabular-nums">
-              {formatMoney(s.total)}
+              {formatValue(s.total)}
             </span>
           </button>
         ))}
@@ -291,17 +301,20 @@ function DonutChart({
 }
 
 interface StatsPanelProps {
-  purchases: Purchase[]
+  items: StatItem[]
   categories: Category[]
+  formatValue: (n: number) => string
   selectedDay: string
   onSelectDay: (day: string) => void
   selectedCategory: string | null
   onSelectCategory: (id: string | null) => void
+  emptyCategoryHint?: string
 }
 
 export default function StatsPanel({
-  purchases,
+  items,
   categories,
+  formatValue,
   selectedDay,
   onSelectDay,
   selectedCategory,
@@ -311,23 +324,23 @@ export default function StatsPanel({
   const [period, setPeriod] = useState<Period>('30d')
 
   const filtered = useMemo(() => {
-    if (period === 'all') return purchases
+    if (period === 'all') return items
     const start = dayKey(new Date(Date.now() - (period === '7d' ? 6 : 29) * 86400000))
-    return purchases.filter((p) => dayKey(new Date(p.date)) >= start)
-  }, [purchases, period])
+    return items.filter((it) => dayKey(new Date(it.date)) >= start)
+  }, [items, period])
 
-  const buckets = useBuckets(purchases, period)
+  const buckets = useBuckets(items, period)
 
   const slices = useMemo<CatSlice[]>(() => {
     const totals = new Map<string, number>()
     let uncategorized = 0
     let sum = 0
-    for (const p of filtered) {
-      sum += p.amount
-      if (p.categoryId && categories.some((c) => c.id === p.categoryId)) {
-        totals.set(p.categoryId, (totals.get(p.categoryId) ?? 0) + p.amount)
+    for (const it of filtered) {
+      sum += it.value
+      if (it.categoryId && categories.some((c) => c.id === it.categoryId)) {
+        totals.set(it.categoryId, (totals.get(it.categoryId) ?? 0) + it.value)
       } else {
-        uncategorized += p.amount
+        uncategorized += it.value
       }
     }
     if (sum === 0) return []
@@ -346,7 +359,7 @@ export default function StatsPanel({
     return list.sort((a, b) => b.total - a.total)
   }, [filtered, categories])
 
-  const periodTotal = filtered.reduce((s, p) => s + p.amount, 0)
+  const periodTotal = filtered.reduce((s, it) => s + it.value, 0)
   const avgPerDay =
     buckets.length > 0 ? buckets.reduce((s, b) => s + b.total, 0) / buckets.length : 0
   const bestDay = buckets.reduce<Bucket | null>(
@@ -389,33 +402,38 @@ export default function StatsPanel({
         </div>
       </div>
 
-      {purchases.length === 0 ? (
+      {items.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
-          Статистика появится после первой покупки
+          Статистика появится после первой записи
         </p>
       ) : view === 'days' ? (
         <div className="flex flex-col gap-4">
-          <DaysChart buckets={buckets} selectedDay={selectedDay} onSelectDay={onSelectDay} />
+          <DaysChart
+            buckets={buckets}
+            selectedDay={selectedDay}
+            onSelectDay={onSelectDay}
+            formatValue={formatValue}
+          />
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded-xl bg-background p-3">
               <p className="text-[11px] text-muted-foreground">За период</p>
-              <p className="mt-0.5 text-sm font-semibold tabular-nums">{formatMoney(periodTotal)}</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">{formatValue(periodTotal)}</p>
             </div>
             <div className="rounded-xl bg-background p-3">
               <p className="text-[11px] text-muted-foreground">В среднем/день</p>
-              <p className="mt-0.5 text-sm font-semibold tabular-nums">{formatMoney(Math.round(avgPerDay))}</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">{formatValue(Math.round(avgPerDay * 10) / 10)}</p>
             </div>
             <div className="rounded-xl bg-background p-3">
               <p className="text-[11px] text-muted-foreground">Максимум</p>
               <p className="mt-0.5 text-sm font-semibold tabular-nums">
-                {formatMoney(bestDay?.total ?? 0)}
+                {formatValue(bestDay?.total ?? 0)}
               </p>
             </div>
           </div>
         </div>
       ) : slices.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
-          За выбранный период трат не было
+          За выбранный период записей не было
         </p>
       ) : (
         <DonutChart
@@ -423,6 +441,7 @@ export default function StatsPanel({
           total={periodTotal}
           selectedId={selectedCategory}
           onSelect={onSelectCategory}
+          formatValue={formatValue}
         />
       )}
     </section>

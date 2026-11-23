@@ -18,8 +18,14 @@ import type { Category, Purchase } from '@/types'
 import {
   loadCategories,
   loadPurchases,
+  loadWorkEntries,
+  loadWorkers,
+  loadWorkTypes,
   saveCategories,
   savePurchases,
+  saveWorkEntries,
+  saveWorkers,
+  saveWorkTypes,
   uid,
 } from '@/lib/storage'
 import {
@@ -33,10 +39,12 @@ import {
 } from '@/lib/format'
 import { DayBars } from '@/components/StatsBars'
 import StatsPanel from '@/components/StatsPanel'
+import ModeSwitch from '@/components/ModeSwitch'
 import PurchaseForm, { type PurchaseDraft } from '@/components/PurchaseForm'
 import PurchaseDetail from '@/components/PurchaseDetail'
 import CategoryManager from '@/components/CategoryManager'
 import SettingsMenu from '@/components/SettingsMenu'
+import type { BackupData } from '@/lib/export'
 
 const SOURCE_ICONS = { offline: Store, online: Globe, unknown: HelpCircle }
 
@@ -141,6 +149,11 @@ export default function Home() {
 
   const totalAll = useMemo(() => purchases.reduce((s, p) => s + p.amount, 0), [purchases])
 
+  const statItems = useMemo(
+    () => purchases.map((p) => ({ date: p.date, value: p.amount, categoryId: p.categoryId })),
+    [purchases],
+  )
+
   const monthKey = selectedDay.slice(0, 7)
   const totalMonth = useMemo(
     () =>
@@ -231,7 +244,7 @@ export default function Home() {
     setDetailId(null)
   }
 
-  const importBackup = (data: { purchases: Purchase[]; categories: Category[] }) => {
+  const importBackup = (data: BackupData) => {
     setPurchases((prev) => {
       const existing = new Set(prev.map((p) => p.id))
       const fresh = data.purchases.filter((p) => !existing.has(p.id))
@@ -242,6 +255,15 @@ export default function Home() {
       const fresh = data.categories.filter((c) => !existing.has(c.id))
       return [...prev, ...fresh]
     })
+    const storedWorkers = loadWorkers()
+    const workerIds = new Set(storedWorkers.map((w) => w.id))
+    saveWorkers([...storedWorkers, ...data.workers.filter((w) => !workerIds.has(w.id))])
+    const storedTypes = loadWorkTypes()
+    const typeIds = new Set(storedTypes.map((t) => t.id))
+    saveWorkTypes([...storedTypes, ...data.workTypes.filter((t) => !typeIds.has(t.id))])
+    const storedEntries = loadWorkEntries()
+    const entryIds = new Set(storedEntries.map((e) => e.id))
+    saveWorkEntries([...data.workEntries.filter((e) => !entryIds.has(e.id)), ...storedEntries])
   }
 
   return (
@@ -282,6 +304,8 @@ export default function Home() {
       </header>
 
       <main className="flex flex-col gap-5 px-4 pt-4">
+        <ModeSwitch mode="money" />
+
         <section className="rounded-2xl border border-border bg-card p-5">
           <p className="text-sm text-muted-foreground">Всего потрачено</p>
           <p className="mt-1 text-4xl font-bold tabular-nums tracking-tight text-deep">
@@ -303,7 +327,7 @@ export default function Home() {
           </div>
           <div className="mt-5">
             <DayBars
-              purchases={purchases}
+              items={statItems}
               selectedDay={selectedDay}
               onSelectDay={selectDayFromChart}
             />
@@ -312,8 +336,9 @@ export default function Home() {
 
         {purchases.length > 0 && (
           <StatsPanel
-            purchases={purchases}
+            items={statItems}
             categories={categories}
+            formatValue={formatMoney}
             selectedDay={selectedDay}
             onSelectDay={selectDayFromChart}
             selectedCategory={filterCat}
@@ -510,8 +535,7 @@ export default function Home() {
 
       <SettingsMenu
         open={settingsOpen}
-        purchases={purchases}
-        categories={categories}
+        mode="money"
         onClose={() => setSettingsOpen(false)}
         onImport={importBackup}
         onClear={clearHistory}

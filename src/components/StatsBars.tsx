@@ -2,20 +2,26 @@ import { useMemo } from 'react'
 import type { Category, Purchase } from '@/types'
 import { dayKey, formatMoney, parseDayKey } from '@/lib/format'
 
+export interface BarItem {
+  date: string
+  value: number
+}
+
 interface StatsBarsProps {
-  purchases: Purchase[]
+  items: BarItem[]
   selectedDay: string
   onSelectDay: (day: string) => void
+  formatValue?: (n: number) => string
 }
 
 const BAR_DAYS = 14
 
-export function DayBars({ purchases, selectedDay, onSelectDay }: StatsBarsProps) {
+export function DayBars({ items, selectedDay, onSelectDay, formatValue = formatMoney }: StatsBarsProps) {
   const days = useMemo(() => {
     const totals = new Map<string, number>()
-    for (const p of purchases) {
-      const k = dayKey(new Date(p.date))
-      totals.set(k, (totals.get(k) ?? 0) + p.amount)
+    for (const it of items) {
+      const k = dayKey(new Date(it.date))
+      totals.set(k, (totals.get(k) ?? 0) + it.value)
     }
     const today = dayKey(new Date())
     const end = selectedDay > today ? selectedDay : today
@@ -32,7 +38,7 @@ export function DayBars({ purchases, selectedDay, onSelectDay }: StatsBarsProps)
       })
     }
     return list
-  }, [purchases, selectedDay])
+  }, [items, selectedDay])
 
   const max = Math.max(1, ...days.map((d) => d.total))
 
@@ -46,7 +52,7 @@ export function DayBars({ purchases, selectedDay, onSelectDay }: StatsBarsProps)
               key={d.key}
               type="button"
               onClick={() => onSelectDay(d.key)}
-              aria-label={`${d.label}, потрачено ${formatMoney(d.total)}`}
+              aria-label={`${d.label}, ${formatValue(d.total)}`}
               className="group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1 rounded-md outline-none transition-colors focus-visible:bg-accent"
             >
               <div

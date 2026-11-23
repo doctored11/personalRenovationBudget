@@ -1,5 +1,6 @@
-import type { Category, Purchase } from '@/types'
+import type { Category, Purchase, Worker, WorkEntry } from '@/types'
 import { SOURCE_LABELS } from '@/types'
+import { entryHours } from '@/lib/format'
 
 function download(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime })
@@ -19,13 +20,22 @@ function stamp(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-export function exportJson(purchases: Purchase[], categories: Category[]) {
+export function exportJson(
+  purchases: Purchase[],
+  categories: Category[],
+  workers: Worker[],
+  workTypes: Category[],
+  workEntries: WorkEntry[],
+) {
   const payload = {
     app: 'remont-expenses',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     categories,
     purchases,
+    workers,
+    workTypes,
+    workEntries,
   }
   download(`remont-backup-${stamp()}.json`, JSON.stringify(payload, null, 2), 'application/json')
 }
@@ -61,26 +71,90 @@ export function exportCsv(purchases: Purchase[], categories: Category[]) {
   download(`remont-expenses-${stamp()}.csv`, '﻿' + [header, ...rows].join('\r\n'), 'text/csv')
 }
 
+export function exportTimeCsv(
+  entries: WorkEntry[],
+  workers: Worker[],
+  workTypes: Category[],
+) {
+  const workerName = (id: string | null) => workers.find((w) => w.id === id)?.name ?? '—'
+  const workerPosition = (id: string | null) =>
+    workers.find((w) => w.id === id)?.position ?? ''
+  const typeName = (id: string | null) =>
+    workTypes.find((t) => t.id === id)?.name ?? 'Без типа'
+  const rows = entries
+    .slice()
+    .sort((a, b) => a.start.localeCompare(b.start))
+    .map((e) => {
+      const s = new Date(e.start)
+      const en = new Date(e.end)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const date = `${pad(s.getDate())}.${pad(s.getMonth() + 1)}.${s.getFullYear()}`
+      const from = `${pad(s.getHours())}:${pad(s.getMinutes())}`
+      const to = `${pad(en.getHours())}:${pad(en.getMinutes())}`
+      const hours = String(Math.round(entryHours(e) * 100) / 100).replace('.', ',')
+      return [
+        csvCell(date),
+        csvCell(workerName(e.workerId)),
+        csvCell(workerPosition(e.workerId)),
+        csvCell(typeName(e.typeId)),
+        csvCell(from),
+        csvCell(to),
+        csvCell(hours),
+        csvCell(e.note),
+      ].join(';')
+    })
+  const header = ['Дата', 'Человек', 'Должность', 'Тип занятости', 'С', 'До', 'Часов', 'Заметка']
+    .map(csvCell)
+    .join(';')
+  download(`remont-time-${stamp()}.csv`, '﻿' + [header, ...rows].join('\r\n'), 'text/csv')
+}
+
 export interface BackupData {
   purchases: Purchase[]
   categories: Category[]
+  workers: Worker[]
+  workTypes: Category[]
+  workEntries: WorkEntry[]
+}
+
+function isValidArray<T>(value: unknown, check: (item: T) => boolean): value is T[] {
+  return Array.isArray(value) && value.every(check)
 }
 
 export function parseBackup(text: string): BackupData {
   const data = JSON.parse(text)
-  if (
-    !data ||
-    !Array.isArray(data.purchases) ||
-    !Array.isArray(data.categories) ||
-    !data.purchases.every(
-      (p: Purchase) =>
-        typeof p.id === 'string' && typeof p.name === 'string' && typeof p.amount === 'number',
-    ) ||
-    !data.categories.every(
-      (c: Category) => typeof c.id === 'string' && typeof c.name === 'string',
+  const validPurchases =
+    data &&
+    isValidArray<Purchase>(
+      data.purchases,
+      (p) => typeof p.id === 'string' && typeof p.name === 'string' && typeof p.amount === 'number',
+    ) &&
+    isValidArray<Category>(
+      data.categories,
+      (c) => typeof c.id === 'string' && typeof c.name === 'string',
     )
-  ) {
+  if (!validPurchases) {
     throw new Error('invalid backup')
   }
-  return { purchases: data.purchases, categories: data.categories }
+  const emptyCat = (v: unknown): Category[] =>
+    isValidArray<Category>(v, (c) => typeof c.id === 'string' && typeof c.name === 'string')
+      ? v
+      : []
+  return {
+    purchases: data.purchases,
+    categories: data.categories,
+    workers: isValidArray<Worker>(
+      data.workers,
+      (w) => typeof w.id === 'string' && typeof w.name === 'string',
+    )
+      ? data.workers
+      : [],
+    workTypes: emptyCat(data.workTypes),
+    workEntries: isValidArray<WorkEntry>(
+      data.workEntries,
+      (e) => typeof e.id === 'string' && typeof e.start === 'string' && typeof e.end === 'string',
+    )
+      ? data.workEntries
+      : [],
+  }
 }

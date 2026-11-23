@@ -54,6 +54,17 @@ export function formatShortDate(iso: string): string {
   return `${d.getDate()} ${MONTHS_GEN[d.getMonth()]}`
 }
 
+export function formatHours(hours: number): string {
+  const rounded = Math.round(hours * 10) / 10
+  const text = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(rounded)
+  return `${text} ч`
+}
+
+export function entryHours(entry: { start: string; end: string }): number {
+  const ms = new Date(entry.end).getTime() - new Date(entry.start).getTime()
+  return Math.max(0, ms / 3600000)
+}
+
 export function toInputDateTime(iso: string): string {
   const d = new Date(iso)
   const pad = (n: number) => String(n).padStart(2, '0')

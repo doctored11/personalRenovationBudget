@@ -1,39 +1,52 @@
 import { useRef, useState } from 'react'
 import { Download, FileSpreadsheet, Trash2, Upload } from 'lucide-react'
-import type { Category, Purchase } from '@/types'
-import { exportCsv, exportJson, parseBackup } from '@/lib/export'
+import { exportCsv, exportJson, exportTimeCsv, parseBackup, type BackupData } from '@/lib/export'
+import {
+  loadCategories,
+  loadPurchases,
+  loadWorkEntries,
+  loadWorkers,
+  loadWorkTypes,
+} from '@/lib/storage'
 import Modal from '@/components/Modal'
 
 interface SettingsMenuProps {
   open: boolean
-  purchases: Purchase[]
-  categories: Category[]
+  mode: 'money' | 'time'
   onClose: () => void
-  onImport: (data: { purchases: Purchase[]; categories: Category[] }) => void
+  onImport: (data: BackupData) => void
   onClear: () => void
 }
 
 const rowCls =
   'flex min-h-14 w-full items-center gap-3 rounded-xl border border-border bg-background px-4 text-left transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.99]'
 
-export default function SettingsMenu({
-  open,
-  purchases,
-  categories,
-  onClose,
-  onImport,
-  onClear,
-}: SettingsMenuProps) {
+export default function SettingsMenu({ open, mode, onClose, onImport, onClear }: SettingsMenuProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+
+  const handleExportJson = () => {
+    exportJson(loadPurchases(), loadCategories(), loadWorkers(), loadWorkTypes(), loadWorkEntries())
+  }
+
+  const handleExportCsv = () => {
+    if (mode === 'money') {
+      exportCsv(loadPurchases(), loadCategories())
+    } else {
+      exportTimeCsv(loadWorkEntries(), loadWorkers(), loadWorkTypes())
+    }
+  }
 
   const handleImport = async (file: File | undefined) => {
     if (!file) return
     try {
       const data = parseBackup(await file.text())
       onImport(data)
-      setMessage(`Импортировано покупок: ${data.purchases.length}`)
+      const parts = []
+      if (data.purchases.length > 0) parts.push(`покупок: ${data.purchases.length}`)
+      if (data.workEntries.length > 0) parts.push(`записей времени: ${data.workEntries.length}`)
+      setMessage(`Импортировано ${parts.length > 0 ? parts.join(', ') : '0 записей'}`)
     } catch {
       setMessage('Не удалось прочитать файл — нужен бэкап, созданный этим приложением')
     }
@@ -49,6 +62,11 @@ export default function SettingsMenu({
     onClose()
   }
 
+  const isEmpty = mode === 'money' ? loadPurchases().length === 0 : loadWorkEntries().length === 0
+  const clearCount = mode === 'money' ? loadPurchases().length : loadWorkEntries().length
+  const clearWhat = mode === 'money' ? 'покупки и фото' : 'записи времени'
+  const clearLabel = mode === 'money' ? `Покупок: ${clearCount}` : `Записей: ${clearCount}`
+
   return (
     <Modal open={open} onClose={onClose} title="Данные и настройки">
       <div className="flex flex-col gap-2 pb-2">
@@ -59,28 +77,29 @@ export default function SettingsMenu({
 
         <button
           type="button"
-          onClick={() => exportJson(purchases, categories)}
-          disabled={purchases.length === 0}
-          className={`${rowCls} disabled:cursor-not-allowed disabled:opacity-40`}
+          onClick={handleExportJson}
+          className={rowCls}
         >
           <Download className="h-5 w-5 shrink-0 text-deep" />
           <span className="flex-1">
             <span className="block font-medium">Бэкап (JSON)</span>
             <span className="block text-xs text-muted-foreground">
-              Все покупки, категории и фото — для восстановления
+              Покупки, записи времени, категории и фото — для восстановления
             </span>
           </span>
         </button>
 
         <button
           type="button"
-          onClick={() => exportCsv(purchases, categories)}
-          disabled={purchases.length === 0}
+          onClick={handleExportCsv}
+          disabled={isEmpty}
           className={`${rowCls} disabled:cursor-not-allowed disabled:opacity-40`}
         >
           <FileSpreadsheet className="h-5 w-5 shrink-0 text-deep" />
           <span className="flex-1">
-            <span className="block font-medium">Таблица (CSV)</span>
+            <span className="block font-medium">
+              Таблица (CSV) — {mode === 'money' ? 'расходы' : 'время'}
+            </span>
             <span className="block text-xs text-muted-foreground">
               Для Excel и Google Таблиц, без фото
             </span>
@@ -120,7 +139,7 @@ export default function SettingsMenu({
           <button
             type="button"
             onClick={handleClear}
-            disabled={purchases.length === 0}
+            disabled={isEmpty}
             className={`flex min-h-14 w-full items-center gap-3 rounded-xl border px-4 text-left transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 ${
               confirmClear
                 ? 'border-destructive bg-destructive text-destructive-foreground'
@@ -134,8 +153,8 @@ export default function SettingsMenu({
               </span>
               <span className={`block text-xs ${confirmClear ? 'opacity-80' : 'text-muted-foreground'}`}>
                 {confirmClear
-                  ? `Покупок: ${purchases.length}. Отменить действие нельзя.`
-                  : 'Удаляет все покупки и фото с этого устройства'}
+                  ? `${clearLabel}. Отменить действие нельзя.`
+                  : `Удаляет все ${clearWhat} с этого устройства`}
               </span>
             </span>
           </button>

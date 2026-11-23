@@ -9,6 +9,9 @@ interface CategoryManagerProps {
   categories: Category[]
   onClose: () => void
   onSave: (categories: Category[]) => void
+  title?: string
+  namePlaceholder?: string
+  addLabel?: string
 }
 
 interface EditState {
@@ -22,6 +25,9 @@ export default function CategoryManager({
   categories,
   onClose,
   onSave,
+  title = 'Категории',
+  namePlaceholder = 'Название категории',
+  addLabel = 'Новая категория',
 }: CategoryManagerProps) {
   const [edit, setEdit] = useState<EditState | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -56,7 +62,7 @@ export default function CategoryManager({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Категории">
+    <Modal open={open} onClose={onClose} title={title}>
       <div className="flex flex-col gap-2 pb-2">
         {categories.map((c) => (
           <div
@@ -100,7 +106,7 @@ export default function CategoryManager({
             <input
               value={edit.name}
               onChange={(e) => setEdit({ ...edit, name: e.target.value })}
-              placeholder="Название категории"
+              placeholder={namePlaceholder}
               aria-label="Название категории"
               autoFocus
               className="w-full rounded-xl border border-input bg-card px-4 py-3 text-base outline-none placeholder:text-muted-foreground/60 focus:border-ring"
@@ -158,7 +164,7 @@ export default function CategoryManager({
             className="mt-1 flex min-h-12 items-center justify-center gap-2 rounded-xl border border-dashed border-input text-muted-foreground transition-colors hover:border-ring hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.99]"
           >
             <Plus className="h-4 w-4" />
-            Новая категория
+            {addLabel}
           </button>
         )}
       </div>

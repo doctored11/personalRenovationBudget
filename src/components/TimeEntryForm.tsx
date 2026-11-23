@@ -6,7 +6,7 @@ import { CATEGORY_PALETTE } from '@/lib/palette'
 import Modal from '@/components/Modal'
 
 export interface TimeEntryDraft {
-  workerId: string | null
+  workerIds: string[]
   typeId: string | null
   start: string
   end: string
@@ -53,7 +53,7 @@ export default function TimeEntryForm({
   onCreateWorker,
   onCreateType,
 }: TimeEntryFormProps) {
-  const [workerId, setWorkerId] = useState<string | null>(initial?.workerId ?? null)
+  const [workerIds, setWorkerIds] = useState<string[]>(initial?.workerIds ?? [])
   const [typeId, setTypeId] = useState<string | null>(initial?.typeId ?? null)
   const [date, setDate] = useState(initial ? toDateInput(initial.start) : todayInput())
   const [startTime, setStartTime] = useState(initial ? toTimeInput(initial.start) : '09:00')
@@ -64,6 +64,9 @@ export default function TimeEntryForm({
   const [workerFormOpen, setWorkerFormOpen] = useState(false)
   const [newWorkerName, setNewWorkerName] = useState('')
   const [newWorkerPosition, setNewWorkerPosition] = useState('')
+  const [newWorkerColor, setNewWorkerColor] = useState(
+    CATEGORY_PALETTE[workers.length % CATEGORY_PALETTE.length],
+  )
 
   const [typeFormOpen, setTypeFormOpen] = useState(false)
   const [newTypeName, setNewTypeName] = useState('')
@@ -76,9 +79,10 @@ export default function TimeEntryForm({
       id: `wrk-${Date.now().toString(36)}`,
       name: trimmed,
       position: newWorkerPosition.trim(),
+      color: newWorkerColor,
     }
     onCreateWorker(worker)
-    setWorkerId(worker.id)
+    setWorkerIds((prev) => [...prev, worker.id])
     setWorkerFormOpen(false)
     setNewWorkerName('')
     setNewWorkerPosition('')
@@ -118,18 +122,25 @@ export default function TimeEntryForm({
 
   const submit = () => {
     const next: typeof errors = {}
-    if (!workerId) next.worker = 'Выберите человека'
+    if (workerIds.length === 0) next.worker = 'Выберите хотя бы одного исполнителя'
     if (!range || hours <= 0 || hours > 24) next.time = 'Проверьте время начала и конца'
     setErrors(next)
     if (next.worker || next.time || !range) return
     onSubmit({
-      workerId,
+      workerIds,
       typeId,
       start: range.start.toISOString(),
       end: range.end.toISOString(),
       note: note.trim(),
     })
     onClose()
+  }
+
+  const toggleWorker = (id: string) => {
+    setWorkerIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+    if (errors.worker) setErrors((p) => ({ ...p, worker: undefined }))
   }
 
   return (
@@ -146,33 +157,50 @@ export default function TimeEntryForm({
         }}
       >
         <div className="flex flex-col gap-1.5">
-          <span className="text-sm text-muted-foreground">Человек</span>
+          <span className="text-sm text-muted-foreground">Исполнители</span>
           <div className="flex flex-wrap gap-2">
-            {workers.map((w) => (
-              <button
-                key={w.id}
-                type="button"
-                onClick={() => {
-                  setWorkerId(w.id)
-                  if (errors.worker) setErrors((p) => ({ ...p, worker: undefined }))
-                }}
-                className={`flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95 ${
-                  workerId === w.id
-                    ? 'border-foreground bg-secondary font-medium'
-                    : 'border-input text-muted-foreground hover:border-ring'
-                }`}
-              >
-                {w.name}
-                {w.position && (
-                  <span className="text-xs text-muted-foreground">{w.position}</span>
-                )}
-              </button>
-            ))}
+            {workers.map((w) => {
+              const selected = workerIds.includes(w.id)
+              return (
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={() => toggleWorker(w.id)}
+                  aria-pressed={selected}
+                  className={`flex min-h-11 items-center gap-2 rounded-2xl border px-3.5 py-1.5 text-left transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95 ${
+                    selected
+                      ? 'border-foreground bg-secondary'
+                      : 'border-input text-muted-foreground hover:border-ring'
+                  }`}
+                >
+                  <span
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
+                    style={{ backgroundColor: `${w.color}22`, color: w.color }}
+                  >
+                    {selected ? (
+                      <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                    ) : (
+                      w.name.trim().charAt(0).toUpperCase()
+                    )}
+                  </span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className={`truncate text-sm leading-tight ${selected ? 'font-medium text-foreground' : ''}`}>
+                      {w.name}
+                    </span>
+                    {w.position && (
+                      <span className="truncate text-[11px] leading-tight text-muted-foreground/80">
+                        {w.position}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              )
+            })}
             <button
               type="button"
               onClick={() => setWorkerFormOpen((v) => !v)}
               aria-label="Добавить человека"
-              className="flex min-h-11 items-center gap-1.5 rounded-full border border-dashed border-input px-4 text-sm text-muted-foreground transition-all hover:border-ring hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95"
+              className="flex min-h-11 items-center gap-1.5 rounded-2xl border border-dashed border-input px-4 text-sm text-muted-foreground transition-all hover:border-ring hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95"
             >
               <Plus className="h-4 w-4" />
               Свой
@@ -200,6 +228,22 @@ export default function TimeEntryForm({
                   }
                 }}
               />
+              <div className="flex flex-wrap items-center gap-2">
+                {CATEGORY_PALETTE.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => setNewWorkerColor(color)}
+                    aria-label={`Цвет ${color}`}
+                    className="flex h-10 w-10 items-center justify-center rounded-full transition-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95"
+                    style={{ backgroundColor: color }}
+                  >
+                    {newWorkerColor === color && (
+                      <Check className="h-4 w-4 text-black/70" strokeWidth={3} />
+                    )}
+                  </button>
+                ))}
+              </div>
               <button
                 type="button"
                 onClick={createWorker}

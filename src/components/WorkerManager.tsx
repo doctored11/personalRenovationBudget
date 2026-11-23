@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Pencil, Plus, Trash2, UserRound } from 'lucide-react'
+import { Check, Pencil, Plus, Trash2, UserRound } from 'lucide-react'
 import type { Worker } from '@/types'
+import { CATEGORY_PALETTE as PALETTE } from '@/lib/palette'
 import Modal from '@/components/Modal'
 
 interface WorkerManagerProps {
@@ -14,6 +15,7 @@ interface EditState {
   id: string | null
   name: string
   position: string
+  color: string
 }
 
 const inputCls =
@@ -23,8 +25,10 @@ export default function WorkerManager({ open, workers, onClose, onSave }: Worker
   const [edit, setEdit] = useState<EditState | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const startAdd = () => setEdit({ id: null, name: '', position: '' })
-  const startEdit = (w: Worker) => setEdit({ id: w.id, name: w.name, position: w.position })
+  const startAdd = () =>
+    setEdit({ id: null, name: '', position: '', color: PALETTE[workers.length % PALETTE.length] })
+  const startEdit = (w: Worker) =>
+    setEdit({ id: w.id, name: w.name, position: w.position, color: w.color })
 
   const commitEdit = () => {
     if (!edit || !edit.name.trim()) return
@@ -35,13 +39,14 @@ export default function WorkerManager({ open, workers, onClose, onSave }: Worker
           id: `wrk-${Date.now().toString(36)}`,
           name: edit.name.trim(),
           position: edit.position.trim(),
+          color: edit.color,
         },
       ])
     } else {
       onSave(
         workers.map((w) =>
           w.id === edit.id
-            ? { ...w, name: edit.name.trim(), position: edit.position.trim() }
+            ? { ...w, name: edit.name.trim(), position: edit.position.trim(), color: edit.color }
             : w,
         ),
       )
@@ -71,7 +76,10 @@ export default function WorkerManager({ open, workers, onClose, onSave }: Worker
             key={w.id}
             className="flex min-h-14 items-center gap-3 rounded-xl border border-border bg-background px-4"
           >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-deep">
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+              style={{ backgroundColor: `${w.color}22`, color: w.color }}
+            >
               <UserRound className="h-4 w-4" />
             </span>
             <span className="min-w-0 flex-1">
@@ -124,6 +132,34 @@ export default function WorkerManager({ open, workers, onClose, onSave }: Worker
               aria-label="Должность"
               className={inputCls}
             />
+            <div className="flex flex-wrap items-center gap-2">
+              {PALETTE.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setEdit({ ...edit, color })}
+                  aria-label={`Цвет ${color}`}
+                  className="flex h-11 w-11 items-center justify-center rounded-full transition-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95"
+                  style={{ backgroundColor: color }}
+                >
+                  {edit.color === color && (
+                    <Check className="h-5 w-5 text-black/70" strokeWidth={3} />
+                  )}
+                </button>
+              ))}
+              <label
+                className="flex h-11 w-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-dashed border-input focus-within:outline focus-within:outline-2 focus-within:outline-ring"
+                title="Свой цвет"
+              >
+                <input
+                  type="color"
+                  value={edit.color}
+                  onChange={(e) => setEdit({ ...edit, color: e.target.value })}
+                  className="h-14 w-14 cursor-pointer border-0 bg-transparent p-0"
+                  aria-label="Выбрать свой цвет"
+                />
+              </label>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"

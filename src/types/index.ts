@@ -28,11 +28,12 @@ export interface Worker {
   id: string
   name: string
   position: string
+  color: string
 }
 
 export interface WorkEntry {
   id: string
-  workerId: string | null
+  workerIds: string[]
   typeId: string | null
   start: string
   end: string

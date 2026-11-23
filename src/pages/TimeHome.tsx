@@ -67,7 +67,8 @@ function TimeCard({
   showDate?: boolean
   onOpen: () => void
 }) {
-  const worker = workers.find((w) => w.id === e.workerId)
+  const entryWorkers = workers.filter((w) => e.workerIds.includes(w.id))
+  const first = entryWorkers[0]
   const type = workTypes.find((t) => t.id === e.typeId)
   return (
     <button
@@ -76,16 +77,25 @@ function TimeCard({
       className="flex min-h-16 w-full items-center gap-3 rounded-2xl border border-border bg-card p-3 text-left transition-colors hover:bg-accent/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.99]"
     >
       <span
-        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-lg font-bold"
+        className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-lg font-bold"
         style={{
-          backgroundColor: `${type?.color ?? '#78716c'}22`,
-          color: type?.color ?? '#a8a29e',
+          backgroundColor: `${first?.color ?? '#78716c'}22`,
+          color: first?.color ?? '#a8a29e',
         }}
       >
-        {(worker?.name ?? '?').trim().charAt(0).toUpperCase()}
+        {(first?.name ?? '?').trim().charAt(0).toUpperCase()}
+        {entryWorkers.length > 1 && (
+          <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-bold text-background">
+            +{entryWorkers.length - 1}
+          </span>
+        )}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium">{worker?.name ?? 'Без имени'}</span>
+        <span className="block truncate font-medium">
+          {entryWorkers.length > 0
+            ? entryWorkers.map((w) => w.name).join(', ')
+            : 'Без исполнителя'}
+        </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           {type && (
             <span className="flex items-center gap-1.5">
@@ -112,7 +122,7 @@ export default function TimeHome() {
   const [workTypes, setWorkTypes] = useState<Category[]>(loadWorkTypes)
   const [entries, setEntries] = useState<WorkEntry[]>(loadWorkEntries)
   const [selectedDay, setSelectedDay] = useState(() => dayKey(new Date()))
-  const [filterType, setFilterType] = useState<string | null>(null)
+  const [filter, setFilter] = useState<{ kind: 'type' | 'person'; id: string } | null>(null)
   const [sortBy, setSortBy] = useState<'date' | 'hours'>('date')
 
   const [formOpen, setFormOpen] = useState(false)
@@ -145,6 +155,19 @@ export default function TimeHome() {
     [entries],
   )
 
+  const personItems = useMemo(
+    () =>
+      entries.flatMap((e) =>
+        e.workerIds.map((id) => ({ date: e.start, value: entryHours(e), categoryId: id })),
+      ),
+    [entries],
+  )
+
+  const peopleCategories = useMemo(
+    () => workers.map((w) => ({ id: w.id, name: w.name, color: w.color })),
+    [workers],
+  )
+
   const monthKey = selectedDay.slice(0, 7)
   const totalMonth = useMemo(
     () =>
@@ -163,26 +186,36 @@ export default function TimeHome() {
   )
   const totalDay = dayEntries.reduce((s, e) => s + entryHours(e), 0)
 
-  const typeListEntries = useMemo(() => {
-    if (filterType === null) return []
+  const filteredEntries = useMemo(() => {
+    if (filter === null) return []
     const list = entries.filter((e) => {
-      if (filterType === 'none')
+      if (filter.kind === 'person') {
+        if (filter.id === 'none')
+          return e.workerIds.length === 0 || !e.workerIds.some((id) => workers.some((w) => w.id === id))
+        return e.workerIds.includes(filter.id)
+      }
+      if (filter.id === 'none')
         return !e.typeId || !workTypes.some((t) => t.id === e.typeId)
-      return e.typeId === filterType
+      return e.typeId === filter.id
     })
     return list.sort((a, b) =>
       sortBy === 'date' ? b.start.localeCompare(a.start) : entryHours(b) - entryHours(a),
     )
-  }, [entries, filterType, sortBy, workTypes])
+  }, [entries, filter, sortBy, workTypes, workers])
 
   const activeFilter = useMemo(() => {
-    if (filterType === null) return null
-    if (filterType === 'none') return { name: 'Без типа', color: '#78716c' }
-    const type = workTypes.find((t) => t.id === filterType)
+    if (filter === null) return null
+    if (filter.kind === 'person') {
+      if (filter.id === 'none') return { name: 'Без человека', color: '#78716c' }
+      const w = workers.find((x) => x.id === filter.id)
+      return { name: w?.name ?? 'Человек', color: w?.color ?? '#78716c' }
+    }
+    if (filter.id === 'none') return { name: 'Без типа', color: '#78716c' }
+    const type = workTypes.find((t) => t.id === filter.id)
     return { name: type?.name ?? 'Тип занятости', color: type?.color ?? '#78716c' }
-  }, [filterType, workTypes])
+  }, [filter, workTypes, workers])
 
-  const filterTotal = typeListEntries.reduce((s, e) => s + entryHours(e), 0)
+  const filterTotal = filteredEntries.reduce((s, e) => s + entryHours(e), 0)
 
   const detail = entries.find((e) => e.id === detailId) ?? null
 
@@ -194,7 +227,7 @@ export default function TimeHome() {
 
   const selectDayFromChart = (day: string) => {
     setSelectedDay(day)
-    setFilterType(null)
+    setFilter(null)
   }
 
   const openDatePicker = () => {
@@ -334,8 +367,16 @@ export default function TimeHome() {
             formatValue={formatHours}
             selectedDay={selectedDay}
             onSelectDay={selectDayFromChart}
-            selectedCategory={filterType}
-            onSelectCategory={setFilterType}
+            selectedCategory={filter?.kind === 'type' ? filter.id : null}
+            onSelectCategory={(id) => setFilter(id ? { kind: 'type', id } : null)}
+            people={{
+              items: personItems,
+              categories: peopleCategories,
+              label: 'По людям',
+              emptyLabel: 'Без человека',
+              selectedId: filter?.kind === 'person' ? filter.id : null,
+              onSelect: (id) => setFilter(id ? { kind: 'person', id } : null),
+            }}
           />
         )}
 
@@ -347,7 +388,7 @@ export default function TimeHome() {
                 Нажмите «+», чтобы добавить первую запись времени
               </p>
             </div>
-          ) : filterType === null ? (
+          ) : filter === null ? (
             <>
               <div className="flex items-center justify-between gap-2">
                 <button
@@ -420,14 +461,14 @@ export default function TimeHome() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{activeFilter.name}</p>
                     <p className="text-xs text-muted-foreground tabular-nums">
-                      {typeListEntries.length}{' '}
-                      {plural(typeListEntries.length, ['запись', 'записи', 'записей'])} ·{' '}
+                      {filteredEntries.length}{' '}
+                      {plural(filteredEntries.length, ['запись', 'записи', 'записей'])} ·{' '}
                       {formatHours(filterTotal)}
                     </p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setFilterType(null)}
+                    onClick={() => setFilter(null)}
                     aria-label="Сбросить фильтр"
                     className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:scale-95"
                   >
@@ -456,14 +497,14 @@ export default function TimeHome() {
                   </button>
                 ))}
               </div>
-              {typeListEntries.length === 0 ? (
+              {filteredEntries.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border p-8 text-center">
                   <p className="text-sm text-muted-foreground">
-                    С этим типом занятости пока нет записей
+                    По этому фильтру пока нет записей
                   </p>
                 </div>
               ) : (
-                typeListEntries.map((e) => (
+                filteredEntries.map((e) => (
                   <TimeCard
                     key={e.id}
                     e={e}

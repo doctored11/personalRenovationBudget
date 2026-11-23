@@ -76,9 +76,10 @@ export function exportTimeCsv(
   workers: Worker[],
   workTypes: Category[],
 ) {
-  const workerName = (id: string | null) => workers.find((w) => w.id === id)?.name ?? '—'
-  const workerPosition = (id: string | null) =>
-    workers.find((w) => w.id === id)?.position ?? ''
+  const workerNames = (ids: string[]) =>
+    ids.map((id) => workers.find((w) => w.id === id)?.name).filter(Boolean).join(', ') || '—'
+  const workerPositions = (ids: string[]) =>
+    ids.map((id) => workers.find((w) => w.id === id)?.position).filter(Boolean).join(', ')
   const typeName = (id: string | null) =>
     workTypes.find((t) => t.id === id)?.name ?? 'Без типа'
   const rows = entries
@@ -94,8 +95,8 @@ export function exportTimeCsv(
       const hours = String(Math.round(entryHours(e) * 100) / 100).replace('.', ',')
       return [
         csvCell(date),
-        csvCell(workerName(e.workerId)),
-        csvCell(workerPosition(e.workerId)),
+        csvCell(workerNames(e.workerIds)),
+        csvCell(workerPositions(e.workerIds)),
         csvCell(typeName(e.typeId)),
         csvCell(from),
         csvCell(to),
@@ -103,7 +104,7 @@ export function exportTimeCsv(
         csvCell(e.note),
       ].join(';')
     })
-  const header = ['Дата', 'Человек', 'Должность', 'Тип занятости', 'С', 'До', 'Часов', 'Заметка']
+  const header = ['Дата', 'Исполнители', 'Должности', 'Тип занятости', 'С', 'До', 'Часов', 'Заметка']
     .map(csvCell)
     .join(';')
   download(`remont-time-${stamp()}.csv`, '﻿' + [header, ...rows].join('\r\n'), 'text/csv')

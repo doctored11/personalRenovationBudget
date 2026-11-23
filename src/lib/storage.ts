@@ -1,4 +1,5 @@
 import type { Category, Purchase, Worker, WorkEntry } from '@/types'
+import { CATEGORY_PALETTE } from '@/lib/palette'
 
 const PURCHASES_KEY = 'remont.purchases.v1'
 const CATEGORIES_KEY = 'remont.categories.v1'
@@ -57,7 +58,12 @@ export function saveCategories(categories: Category[]) {
 }
 
 export function loadWorkers(): Worker[] {
-  return safeParse<Worker[]>(localStorage.getItem(WORKERS_KEY), [])
+  const workers = safeParse<Worker[]>(localStorage.getItem(WORKERS_KEY), [])
+  return workers.map((w, i) => ({
+    ...w,
+    color: w.color ?? CATEGORY_PALETTE[i % CATEGORY_PALETTE.length],
+    position: w.position ?? '',
+  }))
 }
 
 export function saveWorkers(workers: Worker[]) {
@@ -78,7 +84,18 @@ export function saveWorkTypes(types: Category[]) {
 }
 
 export function loadWorkEntries(): WorkEntry[] {
-  return safeParse<WorkEntry[]>(localStorage.getItem(WORK_ENTRIES_KEY), [])
+  const entries = safeParse<WorkEntry[]>(localStorage.getItem(WORK_ENTRIES_KEY), [])
+  return entries.map((e) => {
+    const legacy = e as WorkEntry & { workerId?: string | null }
+    return {
+      ...e,
+      workerIds: Array.isArray(e.workerIds)
+        ? e.workerIds
+        : legacy.workerId
+          ? [legacy.workerId]
+          : [],
+    }
+  })
 }
 
 export function saveWorkEntries(entries: WorkEntry[]) {

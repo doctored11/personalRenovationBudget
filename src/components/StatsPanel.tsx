@@ -8,17 +8,13 @@ export interface StatItem {
   categoryId: string | null
 }
 
-type ViewMode = 'days' | 'categories'
+type ViewMode = 'days' | 'categories' | 'people'
 type Period = '7d' | '30d' | 'all'
 
 const PERIODS: { id: Period; label: string }[] = [
   { id: '7d', label: '7 дней' },
   { id: '30d', label: '30 дней' },
   { id: 'all', label: 'Всё время' },
-]
-const VIEWS: { id: ViewMode; label: string }[] = [
-  { id: 'days', label: 'По дням' },
-  { id: 'categories', label: 'По категориям' },
 ]
 
 interface Bucket {
@@ -212,6 +208,34 @@ interface CatSlice {
   share: number
 }
 
+function buildSlices(items: StatItem[], categories: Category[], emptyLabel: string): CatSlice[] {
+  const totals = new Map<string, number>()
+  let uncategorized = 0
+  let sum = 0
+  for (const it of items) {
+    sum += it.value
+    if (it.categoryId && categories.some((c) => c.id === it.categoryId)) {
+      totals.set(it.categoryId, (totals.get(it.categoryId) ?? 0) + it.value)
+    } else {
+      uncategorized += it.value
+    }
+  }
+  if (sum === 0) return []
+  const list = categories
+    .filter((c) => (totals.get(c.id) ?? 0) > 0)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      color: c.color,
+      total: totals.get(c.id) ?? 0,
+      share: (totals.get(c.id) ?? 0) / sum,
+    }))
+  if (uncategorized > 0) {
+    list.push({ id: 'none', name: emptyLabel, color: '#78716c', total: uncategorized, share: uncategorized / sum })
+  }
+  return list.sort((a, b) => b.total - a.total)
+}
+
 function DonutChart({
   slices,
   total,
@@ -300,6 +324,15 @@ function DonutChart({
   )
 }
 
+export interface PeopleView {
+  items: StatItem[]
+  categories: Category[]
+  label: string
+  emptyLabel: string
+  selectedId: string | null
+  onSelect: (id: string | null) => void
+}
+
 interface StatsPanelProps {
   items: StatItem[]
   categories: Category[]
@@ -308,7 +341,7 @@ interface StatsPanelProps {
   onSelectDay: (day: string) => void
   selectedCategory: string | null
   onSelectCategory: (id: string | null) => void
-  emptyCategoryHint?: string
+  people?: PeopleView
 }
 
 export default function StatsPanel({
@@ -319,45 +352,40 @@ export default function StatsPanel({
   onSelectDay,
   selectedCategory,
   onSelectCategory,
+  people,
 }: StatsPanelProps) {
   const [view, setView] = useState<ViewMode>('days')
   const [period, setPeriod] = useState<Period>('30d')
 
-  const filtered = useMemo(() => {
-    if (period === 'all') return items
+  const VIEWS: { id: ViewMode; label: string }[] = [
+    { id: 'days', label: 'По дням' },
+    { id: 'categories', label: 'По категориям' },
+    ...(people ? [{ id: 'people' as ViewMode, label: people.label }] : []),
+  ]
+
+  const inPeriod = (list: StatItem[]) => {
+    if (period === 'all') return list
     const start = dayKey(new Date(Date.now() - (period === '7d' ? 6 : 29) * 86400000))
-    return items.filter((it) => dayKey(new Date(it.date)) >= start)
-  }, [items, period])
+    return list.filter((it) => dayKey(new Date(it.date)) >= start)
+  }
+
+  const filtered = useMemo(() => inPeriod(items), [items, period])
+  const filteredPeople = useMemo(
+    () => (people ? inPeriod(people.items) : []),
+    [people, period],
+  )
 
   const buckets = useBuckets(items, period)
 
-  const slices = useMemo<CatSlice[]>(() => {
-    const totals = new Map<string, number>()
-    let uncategorized = 0
-    let sum = 0
-    for (const it of filtered) {
-      sum += it.value
-      if (it.categoryId && categories.some((c) => c.id === it.categoryId)) {
-        totals.set(it.categoryId, (totals.get(it.categoryId) ?? 0) + it.value)
-      } else {
-        uncategorized += it.value
-      }
-    }
-    if (sum === 0) return []
-    const list = categories
-      .filter((c) => (totals.get(c.id) ?? 0) > 0)
-      .map((c) => ({
-        id: c.id,
-        name: c.name,
-        color: c.color,
-        total: totals.get(c.id) ?? 0,
-        share: (totals.get(c.id) ?? 0) / sum,
-      }))
-    if (uncategorized > 0) {
-      list.push({ id: 'none', name: 'Без категории', color: '#78716c', total: uncategorized, share: uncategorized / sum })
-    }
-    return list.sort((a, b) => b.total - a.total)
-  }, [filtered, categories])
+  const slices = useMemo<CatSlice[]>(
+    () => buildSlices(filtered, categories, 'Без категории'),
+    [filtered, categories],
+  )
+
+  const peopleSlices = useMemo<CatSlice[]>(
+    () => (people ? buildSlices(filteredPeople, people.categories, people.emptyLabel) : []),
+    [filteredPeople, people],
+  )
 
   const periodTotal = filtered.reduce((s, it) => s + it.value, 0)
   const avgPerDay =
@@ -370,7 +398,11 @@ export default function StatsPanel({
   return (
     <section className="rounded-2xl border border-border bg-card p-5">
       <div className="mb-4 flex flex-col gap-3">
-        <div className="grid grid-cols-2 gap-1 rounded-xl bg-background p-1">
+        <div
+          className={`grid gap-1 rounded-xl bg-background p-1 ${
+            VIEWS.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+          }`}
+        >
           {VIEWS.map((v) => (
             <button
               key={v.id}
@@ -431,6 +463,20 @@ export default function StatsPanel({
             </div>
           </div>
         </div>
+      ) : view === 'people' && people ? (
+        peopleSlices.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            За выбранный период записей не было
+          </p>
+        ) : (
+          <DonutChart
+            slices={peopleSlices}
+            total={filteredPeople.reduce((s, it) => s + it.value, 0)}
+            selectedId={people.selectedId}
+            onSelect={people.onSelect}
+            formatValue={formatValue}
+          />
+        )
       ) : slices.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
           За выбранный период записей не было

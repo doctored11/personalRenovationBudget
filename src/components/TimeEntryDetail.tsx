@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Pencil, Trash2, UserRound } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import type { Category, Worker, WorkEntry } from '@/types'
 import { dayKey, entryHours, formatDayLabel, formatHours, formatTime } from '@/lib/format'
 import Modal from '@/components/Modal'
@@ -24,7 +24,7 @@ export default function TimeEntryDetail({
   const [confirming, setConfirming] = useState(false)
   if (!entry) return null
 
-  const worker = workers.find((w) => w.id === entry.workerId)
+  const entryWorkers = workers.filter((w) => entry.workerIds.includes(w.id))
   const type = workTypes.find((t) => t.id === entry.typeId)
 
   const handleDelete = () => {
@@ -41,18 +41,28 @@ export default function TimeEntryDetail({
     <Modal open={!!entry} onClose={onClose} title="Запись времени">
       <div className="flex flex-col gap-4 pb-2">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-deep">
-              <UserRound className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <h3 className="truncate text-xl font-semibold leading-snug">
-                {worker?.name ?? 'Без имени'}
-              </h3>
-              {worker?.position && (
-                <p className="truncate text-sm text-muted-foreground">{worker.position}</p>
-              )}
-            </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+            {entryWorkers.length === 0 && (
+              <h3 className="text-xl font-semibold leading-snug">Без исполнителя</h3>
+            )}
+            {entryWorkers.map((w) => (
+              <div key={w.id} className="flex min-w-0 items-center gap-3">
+                <span
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+                  style={{ backgroundColor: `${w.color}22`, color: w.color }}
+                >
+                  {w.name.trim().charAt(0).toUpperCase()}
+                </span>
+                <div className="min-w-0">
+                  <h3 className="truncate text-lg font-semibold leading-tight">{w.name}</h3>
+                  {w.position && (
+                    <p className="truncate text-xs leading-tight text-muted-foreground/80">
+                      {w.position}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
           <span className="shrink-0 text-xl font-bold tabular-nums text-deep">
             {formatHours(entryHours(entry))}
